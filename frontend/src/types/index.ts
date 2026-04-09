@@ -54,3 +54,7 @@ export interface MeResponse {
 export interface AdminMembership extends UserMembership {
   user: User
 }
+
+export interface AdminUser extends User {
+  membership: UserMembership | null
+}

@@ -20,7 +20,14 @@ module Api
         }
       end
 
+      DAILY_CONVERSATION_LIMIT = 10
+
       def create
+        today_count = current_user.conversations.where(created_at: Time.current.beginning_of_day..).count
+        if today_count >= DAILY_CONVERSATION_LIMIT
+          return render json: { error: "Daily conversation limit reached (#{DAILY_CONVERSATION_LIMIT}/day)." }, status: :too_many_requests
+        end
+
         result = ConversationService.new.start_conversation(
           user: current_user,
           topic: params[:topic]

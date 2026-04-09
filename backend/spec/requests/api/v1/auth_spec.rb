@@ -5,7 +5,7 @@ RSpec.describe "Api::V1::Auth", type: :request do
     let(:valid_params) { { email: "new@example.com", password: "password123", name: "Test User" } }
 
     context "with valid params" do
-      it "creates a user and returns token" do
+      it "creates a user and returns user info" do
         expect { post "/api/v1/auth/register", params: valid_params }.to change(User, :count).by(1)
 
         expect(response).to have_http_status(:created)
@@ -14,7 +14,6 @@ RSpec.describe "Api::V1::Auth", type: :request do
         expect(json["user"]["email"]).to eq("new@example.com")
         expect(json["user"]["name"]).to eq("Test User")
         expect(json["user"]["role"]).to eq("user")
-        expect(json["token"]).to be_present
 
         expect(json["user"]).not_to have_key("password_digest")
         expect(json["user"]).not_to have_key("auth_token")

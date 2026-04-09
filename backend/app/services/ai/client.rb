@@ -43,7 +43,7 @@ module Ai
           model: TTS_MODEL,
           input: text,
           voice: TTS_VOICE,
-          response_format: "wav"
+          response_format: "mp3"
         }
       )
       StringIO.new(response)

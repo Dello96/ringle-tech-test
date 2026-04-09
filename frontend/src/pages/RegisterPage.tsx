@@ -8,6 +8,8 @@ export function RegisterPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminCode, setAdminCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -16,8 +18,14 @@ export function RegisterPage() {
     setError('')
     setLoading(true)
     try {
-      await register(email, password, name)
-      navigate('/')
+      await register({
+        email,
+        password,
+        name,
+        role: isAdmin ? 'admin' : undefined,
+        admin_code: isAdmin ? adminCode : undefined,
+      })
+      navigate('/login', { state: { registered: true } })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
@@ -62,6 +70,30 @@ export function RegisterPage() {
               placeholder="At least 8 characters"
             />
           </div>
+
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isAdmin}
+                onChange={e => setIsAdmin(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-primary focus:ring-primary"
+              />
+              <span className="text-sm text-gray-400">관리자로 가입</span>
+            </label>
+            {isAdmin && (
+              <div className="mt-2">
+                <label className="block text-sm text-gray-400 mb-1">관리자 코드</label>
+                <input
+                  type="password" required value={adminCode}
+                  onChange={e => setAdminCode(e.target.value)}
+                  placeholder="관리자 코드 입력"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+            )}
+          </div>
+
           <button
             type="submit" disabled={loading}
             className="w-full bg-primary hover:bg-primary-dark text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50"

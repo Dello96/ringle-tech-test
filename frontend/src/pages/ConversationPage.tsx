@@ -5,18 +5,8 @@ import { api } from '../api/client'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 import type { Message } from '../types'
 
-function RecordingTimer() {
-  const [seconds, setSeconds] = useState(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => setSeconds(s => s + 1), 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
-  const ss = String(seconds % 60).padStart(2, '0')
-  return <span className="tabular-nums font-mono">{mm}:{ss}</span>
-}
+const MAX_MESSAGES = 20
+const SEND_COOLDOWN_MS = 3000
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>()
@@ -27,10 +17,14 @@ export function ConversationPage() {
   const [sendingType, setSendingType] = useState<'text' | 'audio' | null>(null)
   const [error, setError] = useState('')
   const [playingId, setPlayingId] = useState<number | null>(null)
+  const [pendingAudio, setPendingAudio] = useState<Blob | null>(null)
+  const [previewPlaying, setPreviewPlaying] = useState(false)
+  const [cooldown, setCooldown] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const previewUrlRef = useRef<string | null>(null)
   const hasAutoPlayed = useRef(false)
-  const { isRecording, volume, startRecording, stopRecording } = useAudioRecorder()
+  const { isRecording, volume, recordingDuration, startRecording, stopRecording } = useAudioRecorder()
 
   const { data, isLoading } = useQuery({
     queryKey: ['conversation', conversationId],
@@ -41,6 +35,13 @@ export function ConversationPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const cleanupPreviewUrl = useCallback(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+  }, [])
+
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause()
@@ -48,6 +49,7 @@ export function ConversationPage() {
       audioRef.current = null
     }
     setPlayingId(null)
+    setPreviewPlaying(false)
   }, [])
 
   const playAudio = useCallback((msg: Message) => {
@@ -56,21 +58,24 @@ export function ConversationPage() {
     const audio = new Audio(msg.audio_url)
     audioRef.current = audio
     setPlayingId(msg.id)
-    audio.onended = () => {
-      setPlayingId(null)
-      audioRef.current = null
-    }
-    audio.onerror = () => {
-      console.error('Audio playback failed for:', msg.audio_url)
-      setPlayingId(null)
-      audioRef.current = null
-    }
-    audio.play().catch((err) => {
-      console.error('Audio play() rejected:', err)
-      setPlayingId(null)
-      audioRef.current = null
-    })
+    audio.onended = () => { setPlayingId(null); audioRef.current = null }
+    audio.onerror = () => { setPlayingId(null); audioRef.current = null }
+    audio.play().catch(() => { setPlayingId(null); audioRef.current = null })
   }, [stopAudio])
+
+  const playPreview = useCallback(() => {
+    if (!pendingAudio) return
+    stopAudio()
+    cleanupPreviewUrl()
+    const url = URL.createObjectURL(pendingAudio)
+    previewUrlRef.current = url
+    const audio = new Audio(url)
+    audioRef.current = audio
+    setPreviewPlaying(true)
+    audio.onended = () => { setPreviewPlaying(false); audioRef.current = null }
+    audio.onerror = () => { setPreviewPlaying(false); audioRef.current = null }
+    audio.play().catch(() => { setPreviewPlaying(false); audioRef.current = null })
+  }, [pendingAudio, stopAudio, cleanupPreviewUrl])
 
   useEffect(scrollToBottom, [data?.messages])
 
@@ -84,16 +89,28 @@ export function ConversationPage() {
     }
   }, [data?.messages, playAudio])
 
-  // Cleanup: stop audio when leaving the page
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-        audioRef.current = null
-      }
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
     }
   }, [])
+
+  // Auto-stop recording at 60s → move to preview
+  useEffect(() => {
+    if (!isRecording) return
+    if (recordingDuration >= 60000) {
+      stopRecording().then(blob => {
+        if (blob) setPendingAudio(blob)
+        else setError('No voice detected. Please try again.')
+      })
+    }
+  }, [isRecording, recordingDuration, stopRecording])
+
+  const startCooldown = () => {
+    setCooldown(true)
+    setTimeout(() => setCooldown(false), SEND_COOLDOWN_MS)
+  }
 
   const addMessages = (...msgs: Message[]) => {
     queryClient.setQueryData(['conversation', conversationId], (old: typeof data) => {
@@ -101,16 +118,13 @@ export function ConversationPage() {
       return {
         ...old,
         messages: [...old.messages, ...msgs],
-        conversation: {
-          ...old.conversation,
-          messages_count: old.conversation.messages_count + msgs.length,
-        },
+        conversation: { ...old.conversation, messages_count: old.conversation.messages_count + msgs.length },
       }
     })
   }
 
   const handleSendText = async () => {
-    if (!text.trim() || sending) return
+    if (!text.trim() || sending || cooldown) return
     const msg = text.trim()
     setText('')
     setError('')
@@ -120,46 +134,176 @@ export function ConversationPage() {
       const result = await api.messages.create(conversationId, { text: msg })
       addMessages(result.user_message, result.ai_message)
       playAudio(result.ai_message)
+      startCooldown()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message. Please try again.')
+      setError(err instanceof Error ? err.message : 'Failed to send message.')
     } finally {
       setSending(false)
       setSendingType(null)
     }
   }
 
-  const handleSendAudio = async () => {
-    if (isRecording) {
-      const blob = await stopRecording()
-      if (!blob) {
-        setError('No voice detected. Please try again and speak clearly.')
-        return
-      }
-      setError('')
-      setSending(true)
-      setSendingType('audio')
-      try {
-        const result = await api.messages.create(conversationId, { audio: blob })
-        addMessages(result.user_message, result.ai_message)
-        playAudio(result.ai_message)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to send audio. Please try again.')
-      } finally {
-        setSending(false)
-        setSendingType(null)
-      }
-    } else {
-      try {
-        await startRecording()
-      } catch {
-        setError('Microphone access denied. Please allow microphone permissions.')
-      }
+  const handleStartRecording = async () => {
+    if (cooldown) return
+    try { await startRecording() }
+    catch { setError('Microphone access denied.') }
+  }
+
+  const handleStopRecording = async () => {
+    const blob = await stopRecording()
+    if (!blob) {
+      setError('Recording too short or no voice detected. Please speak for at least 1 second.')
+      return
+    }
+    setError('')
+    setPendingAudio(blob)
+  }
+
+  const handleConfirmSend = async () => {
+    if (!pendingAudio || sending) return
+    stopAudio()
+    cleanupPreviewUrl()
+    setError('')
+    setSending(true)
+    setSendingType('audio')
+    const blob = pendingAudio
+    setPendingAudio(null)
+    try {
+      const result = await api.messages.create(conversationId, { audio: blob })
+      addMessages(result.user_message, result.ai_message)
+      playAudio(result.ai_message)
+      startCooldown()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send audio.')
+    } finally {
+      setSending(false)
+      setSendingType(null)
     }
   }
 
-  const limitReached = (data?.conversation.messages_count ?? 0) >= 20
+  const handleDiscardAudio = () => {
+    stopAudio(); cleanupPreviewUrl(); setPendingAudio(null)
+  }
+
+  const handleReRecord = async () => {
+    handleDiscardAudio()
+    await handleStartRecording()
+  }
+
+  const messageCount = data?.conversation.messages_count ?? 0
+  const limitReached = messageCount >= MAX_MESSAGES
+  const remaining = MAX_MESSAGES - messageCount
+
+  const formatDuration = (ms: number) => {
+    const s = Math.floor(ms / 1000)
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  }
 
   if (isLoading) return <div className="text-gray-400">Loading conversation...</div>
+
+  const renderInputArea = () => {
+    if (limitReached) {
+      return (
+        <div className="bg-gray-900 border border-gray-700 rounded-xl p-3 text-center text-sm text-gray-400">
+          Message limit reached. <Link to="/conversations" className="text-primary hover:underline">Start a new conversation</Link>
+        </div>
+      )
+    }
+
+    if (isRecording) {
+      return (
+        <div className="bg-gray-900 border-2 border-red-500 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleStopRecording}
+              className="shrink-0 w-12 h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all animate-pulse"
+              title="Stop recording"
+            >
+              <span className="w-4 h-4 bg-white rounded-sm" />
+            </button>
+            <div className="flex-1 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-red-400">
+                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                  <span className="text-sm font-medium">Recording</span>
+                  <span className="tabular-nums font-mono text-sm">{formatDuration(recordingDuration)}</span>
+                </div>
+                <span className="text-xs text-gray-500">Max 60s</span>
+              </div>
+              <div className="w-full h-6 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-red-500 to-red-400 rounded-full transition-all duration-75"
+                  style={{ width: `${Math.max(2, volume * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (pendingAudio) {
+      return (
+        <div className="bg-gray-900 border-2 border-primary rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-primary">Recording complete</span>
+            <span className="text-xs text-gray-500">{(pendingAudio.size / 1024).toFixed(1)} KB</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {previewPlaying ? (
+              <button onClick={stopAudio} className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+                <span>⏹</span> Stop
+              </button>
+            ) : (
+              <button onClick={playPreview} className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+                <span>▶</span> Preview
+              </button>
+            )}
+            <button onClick={handleReRecord} className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-lg text-sm transition-colors">
+              Re-record
+            </button>
+            <div className="flex-1" />
+            <button onClick={handleDiscardAudio} className="text-gray-500 hover:text-red-400 px-3 py-2 rounded-lg text-sm transition-colors">
+              Discard
+            </button>
+            <button onClick={handleConfirmSend} className="bg-primary hover:bg-primary-dark text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors">
+              Send
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="bg-gray-900 border border-gray-700 rounded-xl p-3 flex items-center gap-2">
+        <button
+          onClick={handleStartRecording}
+          disabled={sending || cooldown}
+          className="shrink-0 w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-all disabled:opacity-50"
+          title="Start recording"
+        >
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-2a5 5 0 01-10 0H3a7.001 7.001 0 006 6.93V17H6v2h8v-2h-3v-2.07z" />
+          </svg>
+        </button>
+        <input
+          type="text" value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSendText()}
+          placeholder="Type a message..."
+          disabled={sending || cooldown}
+          className="flex-1 bg-transparent text-white placeholder-gray-500 outline-none text-sm disabled:opacity-50"
+        />
+        <button
+          onClick={handleSendText}
+          disabled={!text.trim() || sending || cooldown}
+          className="shrink-0 bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          Send
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
@@ -168,7 +312,9 @@ export function ConversationPage() {
           <Link to="/conversations" className="text-sm text-gray-400 hover:text-primary">&larr; Back</Link>
           <h1 className="text-xl font-bold">{data?.conversation.topic}</h1>
         </div>
-        <span className="text-sm text-gray-500">{data?.conversation.messages_count} messages</span>
+        <span className={`text-sm ${remaining <= 4 ? 'text-red-400' : 'text-gray-500'}`}>
+          {remaining} / {MAX_MESSAGES} remaining
+        </span>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
@@ -180,25 +326,15 @@ export function ConversationPage() {
                 : 'bg-gray-800 text-gray-100 rounded-bl-md'
             }`}>
               {msg.role === 'user' && msg.audio_url && (
-                <span className="text-xs opacity-60 block mb-0.5">🎙 Voice message</span>
+                <span className="text-xs opacity-60 block mb-0.5">Voice message</span>
               )}
               <p className="text-sm whitespace-pre-wrap">{msg.content || '(empty transcription)'}</p>
               {msg.audio_url && (
                 <div className="mt-1 flex items-center gap-1">
                   {playingId === msg.id ? (
-                    <button
-                      onClick={stopAudio}
-                      className="text-xs flex items-center gap-1 text-accent"
-                    >
-                      ⏹ Stop
-                    </button>
+                    <button onClick={stopAudio} className="text-xs flex items-center gap-1 text-accent">⏹ Stop</button>
                   ) : (
-                    <button
-                      onClick={() => playAudio(msg)}
-                      className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100"
-                    >
-                      ▶ Play audio
-                    </button>
+                    <button onClick={() => playAudio(msg)} className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100">▶ Play audio</button>
                   )}
                 </div>
               )}
@@ -224,72 +360,7 @@ export function ConversationPage() {
         </div>
       )}
 
-      {limitReached ? (
-        <div className="bg-gray-900 border border-gray-700 rounded-xl p-3 text-center text-sm text-gray-400">
-          Message limit reached. <Link to="/conversations" className="text-primary hover:underline">Start a new conversation</Link>
-        </div>
-      ) : isRecording ? (
-        <div className="bg-gray-900 border-2 border-red-500 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSendAudio}
-              className="shrink-0 w-12 h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all animate-pulse"
-              title="Stop recording and send"
-            >
-              <span className="w-4 h-4 bg-white rounded-sm" />
-            </button>
-
-            <div className="flex-1 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-red-400">
-                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-sm font-medium">Recording</span>
-                  <RecordingTimer />
-                </div>
-                <span className="text-xs text-gray-500">Tap stop to send</span>
-              </div>
-
-              <div className="w-full h-6 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-red-500 to-red-400 rounded-full transition-all duration-75"
-                  style={{ width: `${Math.max(2, volume * 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-gray-900 border border-gray-700 rounded-xl p-3 flex items-center gap-2">
-          <button
-            onClick={handleSendAudio}
-            disabled={sending}
-            className="shrink-0 w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-all disabled:opacity-50"
-            title="Start recording"
-          >
-            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-2a5 5 0 01-10 0H3a7.001 7.001 0 006 6.93V17H6v2h8v-2h-3v-2.07z" />
-            </svg>
-          </button>
-
-          <input
-            type="text"
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSendText()}
-            placeholder="Type a message..."
-            disabled={sending}
-            className="flex-1 bg-transparent text-white placeholder-gray-500 outline-none text-sm disabled:opacity-50"
-          />
-
-          <button
-            onClick={handleSendText}
-            disabled={!text.trim() || sending}
-            className="shrink-0 bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            Send
-          </button>
-        </div>
-      )}
+      {renderInputArea()}
     </div>
   )
 }

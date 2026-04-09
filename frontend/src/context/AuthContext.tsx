@@ -1,13 +1,13 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { User, UserMembership } from '../types'
-import { api, setToken, clearToken } from '../api/client'
+import { api, setToken, clearToken, setOnUnauthorized } from '../api/client'
 
 interface AuthState {
   user: User | null
   membership: UserMembership | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, name: string) => Promise<void>
+  register: (data: { email: string; password: string; name: string; role?: string; admin_code?: string }) => Promise<void>
   logout: () => void
   refresh: () => Promise<void>
 }
@@ -47,18 +47,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refresh()
   }
 
-  const register = async (email: string, password: string, name: string) => {
-    const data = await api.auth.register({ email, password, name })
-    setToken(data.token)
-    setUser(data.user)
-    await refresh()
+  const register = async (data: { email: string; password: string; name: string; role?: string; admin_code?: string }) => {
+    await api.auth.register(data)
   }
 
-  const logout = () => {
+  const logout = useCallback(() => {
     clearToken()
     setUser(null)
     setMembership(null)
-  }
+  }, [])
+
+  useEffect(() => {
+    setOnUnauthorized(logout)
+  }, [logout])
 
   return (
     <AuthContext.Provider value={{ user, membership, loading, login, register, logout, refresh }}>

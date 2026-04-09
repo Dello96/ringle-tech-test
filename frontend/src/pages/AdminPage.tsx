@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import type { AdminUser, MembershipPlan } from '../types'
 
 export function AdminPage() {
   const queryClient = useQueryClient()
-  const [statusFilter, setStatusFilter] = useState<string>('')
-  const [assignUserId, setAssignUserId] = useState('')
-  const [assignPlanId, setAssignPlanId] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [editingUserId, setEditingUserId] = useState<number | null>(null)
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
 
-  const { data: membershipsData, isLoading } = useQuery({
-    queryKey: ['admin-memberships', statusFilter],
-    queryFn: () => api.admin.memberships.list(statusFilter ? { status: statusFilter } : undefined),
+  const { data: usersData, isLoading: usersLoading } = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: () => api.admin.users.list(),
   })
 
   const { data: plansData } = useQuery({
@@ -20,142 +20,215 @@ export function AdminPage() {
     queryFn: () => api.plans.list(),
   })
 
-  const handleAssign = async () => {
-    if (!assignUserId || !assignPlanId) return
-    setError('')
-    setSuccess('')
+  const refreshData = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+  }
+
+  const showMessage = (msg: string, isError = false) => {
+    if (isError) { setError(msg); setSuccess('') }
+    else { setSuccess(msg); setError('') }
+    setTimeout(() => { setError(''); setSuccess('') }, 3000)
+  }
+
+  const handleAssign = async (user: AdminUser, planId: string) => {
+    if (!planId) return
     try {
       await api.admin.memberships.create({
-        user_id: Number(assignUserId),
-        plan_id: Number(assignPlanId),
+        user_id: user.id,
+        plan_id: Number(planId),
       })
-      setSuccess('Membership assigned successfully')
-      setAssignUserId('')
-      setAssignPlanId('')
-      queryClient.invalidateQueries({ queryKey: ['admin-memberships'] })
+      showMessage(`${user.name}님에게 멤버십을 부여했습니다.`)
+      setEditingUserId(null)
+      setSelectedPlanId('')
+      refreshData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign')
+      showMessage(err instanceof Error ? err.message : '멤버십 부여 실패', true)
     }
   }
 
-  const handleRevoke = async (id: number) => {
-    if (!confirm('Revoke this membership?')) return
-    setError('')
+  const handleUpdate = async (user: AdminUser, planId: string) => {
+    if (!planId || !user.membership) return
     try {
-      await api.admin.memberships.destroy(id)
-      setSuccess('Membership revoked')
-      queryClient.invalidateQueries({ queryKey: ['admin-memberships'] })
+      await api.admin.memberships.update(user.membership.id, {
+        plan_id: Number(planId),
+      })
+      showMessage(`${user.name}님의 멤버십을 변경했습니다.`)
+      setEditingUserId(null)
+      setSelectedPlanId('')
+      refreshData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke')
+      showMessage(err instanceof Error ? err.message : '멤버십 변경 실패', true)
     }
   }
+
+  const handleRevoke = async (user: AdminUser) => {
+    if (!user.membership) return
+    if (!confirm(`${user.name}님의 멤버십을 삭제하시겠습니까?`)) return
+    try {
+      await api.admin.memberships.destroy(user.membership.id)
+      showMessage(`${user.name}님의 멤버십을 삭제했습니다.`)
+      refreshData()
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : '멤버십 삭제 실패', true)
+    }
+  }
+
+  const startEditing = (user: AdminUser) => {
+    setEditingUserId(user.id)
+    setSelectedPlanId(user.membership ? String(user.membership.plan.id) : '')
+  }
+
+  const cancelEditing = () => {
+    setEditingUserId(null)
+    setSelectedPlanId('')
+  }
+
+  const formatPrice = (price: number) => `₩${price.toLocaleString()}`
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Admin — Membership Management</h1>
+      <h1 className="text-2xl font-bold mb-2">관리자 페이지</h1>
+      <p className="text-gray-400 mb-6">가입된 유저 목록과 멤버십을 관리합니다</p>
 
-      {error && <div className="bg-red-900/40 border border-red-700 text-red-300 px-4 py-2 rounded-lg text-sm mb-4">{error}</div>}
-      {success && <div className="bg-green-900/40 border border-green-700 text-green-300 px-4 py-2 rounded-lg text-sm mb-4">{success}</div>}
-
-      <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-6">
-        <h2 className="text-lg font-semibold mb-3">Assign Membership</h2>
-        <div className="flex gap-3 items-end flex-wrap">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">User ID</label>
-            <input
-              type="number" value={assignUserId}
-              onChange={e => setAssignUserId(e.target.value)}
-              className="bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-white text-sm w-24"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Plan</label>
-            <select
-              value={assignPlanId}
-              onChange={e => setAssignPlanId(e.target.value)}
-              className="bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-white text-sm"
-            >
-              <option value="">Select plan</option>
-              {plansData?.plans.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={handleAssign}
-            disabled={!assignUserId || !assignPlanId}
-            className="bg-primary hover:bg-primary-dark text-white px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-          >
-            Assign
-          </button>
+      {error && (
+        <div className="bg-red-900/40 border border-red-700 text-red-300 px-4 py-2 rounded-lg text-sm mb-4">
+          {error}
         </div>
-      </div>
+      )}
+      {success && (
+        <div className="bg-green-900/40 border border-green-700 text-green-300 px-4 py-2 rounded-lg text-sm mb-4">
+          {success}
+        </div>
+      )}
 
-      <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-lg font-semibold">All Memberships</h2>
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-white"
-        >
-          <option value="">All</option>
-          <option value="active">Active</option>
-          <option value="expired">Expired</option>
-        </select>
-      </div>
-
-      {isLoading ? (
+      {usersLoading ? (
         <div className="text-gray-400">Loading...</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700">
-                <th className="pb-2 pr-4">User</th>
-                <th className="pb-2 pr-4">Plan</th>
-                <th className="pb-2 pr-4">Status</th>
-                <th className="pb-2 pr-4">Expires</th>
-                <th className="pb-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {membershipsData?.memberships.map(m => (
-                <tr key={m.id} className="border-b border-gray-800">
-                  <td className="py-2 pr-4">
-                    <div>{m.user.name}</div>
-                    <div className="text-xs text-gray-500">{m.user.email} (ID: {m.user.id})</div>
-                  </td>
-                  <td className="py-2 pr-4">{m.plan.name}</td>
-                  <td className="py-2 pr-4">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs ${
-                      m['active?'] ? 'bg-green-900/50 text-green-400' : 'bg-gray-800 text-gray-500'
-                    }`}>
-                      {m['active?'] ? 'Active' : 'Expired'}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4 text-gray-400">
-                    {new Date(m.expires_at).toLocaleDateString()}
-                    {m['active?'] && <span className="text-xs ml-1">({m.remaining_days}d)</span>}
-                  </td>
-                  <td className="py-2">
-                    {m['active?'] && (
+        <div className="space-y-3">
+          {usersData?.users.map((user) => {
+            const m = user.membership
+            const isEditing = editingUserId === user.id
+
+            return (
+              <div key={user.id} className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-white">{user.name}</span>
+                      <span className="text-xs text-gray-500">ID: {user.id}</span>
+                    </div>
+                    <div className="text-sm text-gray-400">{user.email}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      가입일: {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                    </div>
+                  </div>
+
+                  <div className="flex-shrink-0 text-right">
+                    {m && m['active?'] ? (
+                      <div>
+                        <span className="inline-block px-2 py-0.5 rounded text-xs bg-green-900/50 text-green-400 mb-1">
+                          {m.plan.name}
+                        </span>
+                        <div className="text-xs text-gray-400">
+                          {m.remaining_days}일 남음
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          만료: {new Date(m.expires_at).toLocaleDateString('ko-KR')}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="inline-block px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-500">
+                        플랜 없음
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <div className="mt-3 pt-3 border-t border-gray-800 flex items-center gap-3 flex-wrap">
+                    <PlanSelector
+                      plans={plansData?.plans || []}
+                      value={selectedPlanId}
+                      onChange={setSelectedPlanId}
+                      formatPrice={formatPrice}
+                    />
+                    <button
+                      onClick={() => m && m['active?']
+                        ? handleUpdate(user, selectedPlanId)
+                        : handleAssign(user, selectedPlanId)
+                      }
+                      disabled={!selectedPlanId}
+                      className="bg-primary hover:bg-primary-dark text-white px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50 transition-colors"
+                    >
+                      {m && m['active?'] ? '변경 확인' : '부여 확인'}
+                    </button>
+                    <button
+                      onClick={cancelEditing}
+                      className="text-gray-400 hover:text-white px-3 py-1.5 rounded text-sm transition-colors"
+                    >
+                      취소
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 pt-3 border-t border-gray-800 flex gap-2">
+                    {m && m['active?'] ? (
+                      <>
+                        <button
+                          onClick={() => startEditing(user)}
+                          className="text-primary hover:text-blue-300 text-sm font-medium transition-colors"
+                        >
+                          플랜 변경
+                        </button>
+                        <button
+                          onClick={() => handleRevoke(user)}
+                          className="text-red-400 hover:text-red-300 text-sm font-medium transition-colors"
+                        >
+                          멤버십 삭제
+                        </button>
+                      </>
+                    ) : (
                       <button
-                        onClick={() => handleRevoke(m.id)}
-                        className="text-red-400 hover:text-red-300 text-xs"
+                        onClick={() => startEditing(user)}
+                        className="text-primary hover:text-blue-300 text-sm font-medium transition-colors"
                       >
-                        Revoke
+                        멤버십 부여
                       </button>
                     )}
-                  </td>
-                </tr>
-              ))}
-              {membershipsData?.memberships.length === 0 && (
-                <tr><td colSpan={5} className="py-4 text-gray-500 text-center">No memberships found</td></tr>
-              )}
-            </tbody>
-          </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {usersData?.users.length === 0 && (
+            <div className="text-gray-500 text-center py-8">가입된 유저가 없습니다</div>
+          )}
         </div>
       )}
     </div>
+  )
+}
+
+function PlanSelector({
+  plans, value, onChange, formatPrice,
+}: {
+  plans: MembershipPlan[]
+  value: string
+  onChange: (v: string) => void
+  formatPrice: (n: number) => string
+}) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-white text-sm"
+    >
+      <option value="">플랜 선택</option>
+      {plans.map(p => (
+        <option key={p.id} value={p.id}>
+          {p.name} — {formatPrice(p.price_cents)} / {p.duration_days}일
+        </option>
+      ))}
+    </select>
   )
 }

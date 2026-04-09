@@ -10,7 +10,8 @@ Rails.application.routes.draw do
       resources :plans, only: :index
 
       namespace :admin do
-        resources :memberships, only: %i[index create destroy]
+        resources :users, only: :index
+        resources :memberships, only: %i[index create update destroy]
       end
 
       resources :purchases, only: :create

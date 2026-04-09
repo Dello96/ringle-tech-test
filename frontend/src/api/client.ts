@@ -1,4 +1,5 @@
 const API_BASE = '/api/v1'
+const REQUEST_TIMEOUT_MS = 30_000
 
 function getToken(): string | null {
   return localStorage.getItem('auth_token')
@@ -10,6 +11,12 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem('auth_token')
+}
+
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -26,9 +33,31 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Content-Type'] = 'application/json'
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Please check your connection and try again.', 0)
+    }
+    throw new ApiError('Network error. Please check your internet connection.', 0)
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      clearToken()
+      onUnauthorized?.()
+    }
     const body = await res.json().catch(() => ({ error: res.statusText }))
     throw new ApiError(body.error || 'Request failed', res.status)
   }
@@ -47,8 +76,8 @@ export class ApiError extends Error {
 
 export const api = {
   auth: {
-    register: (data: { email: string; password: string; name: string }) =>
-      request<{ user: import('../types').User; token: string }>('/auth/register', {
+    register: (data: { email: string; password: string; name: string; role?: string; admin_code?: string }) =>
+      request<{ user: import('../types').User }>('/auth/register', {
         method: 'POST', body: JSON.stringify(data),
       }),
     login: (data: { email: string; password: string }) =>
@@ -92,6 +121,9 @@ export const api = {
     },
   },
   admin: {
+    users: {
+      list: () => request<{ users: import('../types').AdminUser[] }>('/admin/users'),
+    },
     memberships: {
       list: (params?: { user_id?: number; status?: string }) => {
         const query = new URLSearchParams()
@@ -105,6 +137,10 @@ export const api = {
       create: (data: { user_id: number; plan_id: number }) =>
         request<{ membership: import('../types').UserMembership }>('/admin/memberships', {
           method: 'POST', body: JSON.stringify(data),
+        }),
+      update: (id: number, data: { plan_id: number }) =>
+        request<{ membership: import('../types').UserMembership }>(`/admin/memberships/${id}`, {
+          method: 'PATCH', body: JSON.stringify(data),
         }),
       destroy: (id: number) =>
         request<{ message: string }>(`/admin/memberships/${id}`, { method: 'DELETE' }),

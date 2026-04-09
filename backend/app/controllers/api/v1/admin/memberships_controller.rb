@@ -39,6 +39,19 @@ module Api
           render json: { membership: membership.as_json }, status: :created
         end
 
+        def update
+          membership = UserMembership.find(params[:id])
+          plan = MembershipPlan.find(params[:plan_id])
+
+          membership.update!(
+            membership_plan: plan,
+            starts_at: Time.current,
+            expires_at: Time.current + plan.duration_days.days
+          )
+
+          render json: { membership: membership.as_json }
+        end
+
         def destroy
           membership = UserMembership.find(params[:id])
           membership.destroy!

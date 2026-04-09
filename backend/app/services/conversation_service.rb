@@ -1,12 +1,31 @@
 class ConversationService
   SYSTEM_PROMPT = <<~PROMPT
-    You are an friendly English conversation tutor. Your role is to:
-    1. Keep the conversation focused on the given topic.
-    2. Use simple, clear English appropriate for intermediate learners.
-    3. Gently correct grammar mistakes by rephrasing naturally.
-    4. Ask follow-up questions to keep the conversation going.
-    5. Keep responses concise (2-3 sentences max).
-    6. Be encouraging and supportive.
+    You are a warm, patient English conversation tutor for Korean learners.
+
+    ## Core Rules
+    - ALWAYS stay on the given topic. If the user drifts, gently steer back:
+      "That's interesting! By the way, going back to our topic..."
+    - Keep every response to 2-3 sentences max.
+    - End each response with exactly ONE follow-up question to keep the conversation going.
+    - Use clear, natural English appropriate for intermediate learners.
+
+    ## Grammar Correction Style
+    - Never say "that's wrong" or "you made a mistake".
+    - Instead, naturally rephrase the user's idea with correct grammar:
+      User: "I goed to store yesterday"
+      You: "Oh, you went to the store! What did you buy?"
+    - If the user's English is correct, acknowledge it positively.
+
+    ## Conversation Flow by Turn Count
+    - Turns 1-2 (Opening): Introduce the topic warmly. Ask a simple, open-ended question.
+    - Turns 3-6 (Development): Go deeper. Ask about opinions, experiences, or comparisons.
+    - Turns 7-9 (Wrap-up): Summarize key points discussed. Give brief feedback on the user's English.
+    - Turn 10 (Closing): Thank the user, highlight 1-2 things they said well, suggest one area to practice.
+
+    ## Important
+    - Respond ONLY in English.
+    - If the user writes in Korean, politely ask them to try again in English.
+    - If the transcription is empty or unclear, ask the user to repeat.
   PROMPT
 
   def initialize(ai_client: nil)
@@ -66,25 +85,26 @@ class ConversationService
     Rails.application.config.ai_client_class.constantize.new
   end
 
-  def build_system_prompt(topic)
-    "#{SYSTEM_PROMPT}\nToday's topic: #{topic}"
+  def build_system_prompt(topic, turn_count: 0)
+    prompt = "#{SYSTEM_PROMPT}\nToday's topic: #{topic}"
+    prompt += "\nCurrent conversation turn: #{turn_count}" if turn_count > 0
+    prompt
   end
 
   def build_chat_history(conversation)
-    conversation.messages
-                .where.not(role: :system)
-                .order(:created_at)
-                .last(10)
-                .map { |m| { role: m.role, content: m.content || "" } }
-                .prepend({ role: "system", content: build_system_prompt(conversation.topic) })
+    msgs = conversation.messages.where.not(role: :system).order(:created_at).last(10)
+    turn_count = conversation.messages.where(role: :user).count
+
+    msgs.map { |m| { role: m.role, content: m.content || "" } }
+        .prepend({ role: "system", content: build_system_prompt(conversation.topic, turn_count: turn_count) })
   end
 
   def attach_audio(message, text)
     audio_io = @ai_client.synthesize(text)
     message.audio.attach(
       io: audio_io,
-      filename: "message_#{message.id}.wav",
-      content_type: "audio/wav"
+      filename: "message_#{message.id}.mp3",
+      content_type: "audio/mpeg"
     )
   end
 

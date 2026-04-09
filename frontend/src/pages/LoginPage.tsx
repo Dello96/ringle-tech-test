@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const justRegistered = (location.state as { registered?: boolean })?.registered
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -31,6 +33,11 @@ export function LoginPage() {
         <p className="text-gray-400 text-center mb-8">Sign in to your account</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {justRegistered && (
+            <div className="bg-green-900/40 border border-green-700 text-green-300 px-4 py-2 rounded-lg text-sm">
+              회원가입이 완료되었습니다. 로그인해 주세요.
+            </div>
+          )}
           {error && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 px-4 py-2 rounded-lg text-sm">
               {error}
