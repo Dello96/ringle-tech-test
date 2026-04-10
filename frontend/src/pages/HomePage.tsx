@@ -22,6 +22,9 @@ export function HomePage() {
           <p className="text-gray-500">
             <span className="text-primary font-semibold">{membership.plan.name}</span> plan
             — {membership.remaining_days}일 남음
+            <span className="text-gray-400 text-sm ml-1">
+              ({new Date(membership.expires_at).toLocaleDateString('ko-KR')} 만료)
+            </span>
           </p>
         ) : (
           <p className="text-gray-500">

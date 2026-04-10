@@ -90,7 +90,7 @@ export const api = {
     list: () => request<{ plans: import('../types').MembershipPlan[] }>('/plans'),
   },
   purchases: {
-    create: (data: { plan_id: number; card_token: string }) =>
+    create: (data: { plan_id: number; card_token: string; replace_existing?: boolean }) =>
       request<{ membership: import('../types').UserMembership; transaction_id: string }>('/purchases', {
         method: 'POST', body: JSON.stringify(data),
       }),

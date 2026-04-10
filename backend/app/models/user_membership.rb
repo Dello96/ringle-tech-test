@@ -23,7 +23,7 @@ class UserMembership < ApplicationRecord
   def remaining_days
     return 0 if expired?
 
-    ((expires_at - Time.current) / 1.day).ceil
+    (expires_at.to_date - Date.current).to_i
   end
 
   def as_json(options = {})
