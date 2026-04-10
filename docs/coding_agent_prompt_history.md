@@ -1,4 +1,4 @@
-### 1-1. 프로젝트 시작하기 직전 코딩을 바로 하지 않고 설계부터 하기 위한 프롬프트
+### 1. 프로젝트 시작하기 직전 코딩을 바로 하지 않고 설계부터 하기 위한 프롬프트
 
 You are my senior full-stack engineering partner for a take-home assignment.
 
@@ -47,20 +47,6 @@ J. File/folder plan
 Keep the plan practical, submission-oriented, and simple.
 Do not generate code yet.
 
-### 1-2. 초기 설계안을 구체화하기 위한 프롬프트
-
-Based on the plan you proposed, now refine the architecture into:
-
-- domain model definitions
-- DB schema proposal
-- REST API spec
-- frontend page flow
-- external integration boundaries (LLM/STT/TTS/payment mock)
-- test plan
-
-Highlight anything that is too large for the assignment and simplify it.
-Do not write code yet.
-
 ### 2-1. 설계안을 staff reviewer처럼 비판적으로 보도록 하는 프롬프트
 
 Act as a strict staff-level reviewer.
@@ -70,6 +56,9 @@ Your job is to critically review the proposed architecture/design for my AI Tuto
 
 I want a brutally honest design review.
 
+==================================================
+REVIEW OBJECTIVE
+==================================================
 Evaluate whether this design is:
 
 1. aligned with the assignment requirements,
@@ -80,36 +69,227 @@ Evaluate whether this design is:
 6. testable,
 7. likely to produce a strong submission.
 
-Review across:
+Do NOT assume the design is good.
+Try to break it.
 
-- requirement coverage
-- scope control
-- domain model quality
-- backend architecture
-- API design
-- frontend architecture
-- AI/audio integration design
-- data persistence
-- testing strategy
-- documentation/submission readiness
-- maintainability/reviewer impression
+==================================================
+ASSIGNMENT CONSTRAINTS YOU MUST CHECK AGAINST
+==================================================
+This project must support:
 
-Output:
+- Backend: Ruby on Rails
+- Frontend: TypeScript + React
+- Persistent storage
+- High-quality tests
+- Membership creation and deletion
+- Membership expiration handling
+- Membership feature combinations:
+  - Learning
+  - Conversation
+  - Analysis
+- Admin assignment API + Admin UI
+- User purchase API
+- Payment must be mocked
+- LLM/STT/TTS should be real integrations where possible
+- Home screen showing current membership
+- Purchase support on home screen if implemented
+- Membership validation before entering conversation
+- AI starts the conversation first
+- Microphone recording
+- Waveform or similar recording UX
+- “response complete” triggers STT -> AI reply
+- replay audio
+- VAD-based silence removal before STT
+- consistent-topic prompting
+- latency reduction strategy
+- abuse prevention strategy
+- network error handling
+- README/doc requirements
+- coding_agent_interaction_history documentation support
+- code quality suitable for teammate review
+
+==================================================
+REVIEW INSTRUCTIONS
+==================================================
+Review the proposed design across all of the following categories.
+
+For each category:
+
+- identify strengths
+- identify weaknesses
+- identify missing requirements
+- identify overengineering
+- identify implementation risks
+- propose a better alternative when needed
+
+==================================================
+CATEGORIES TO REVIEW
+==================================================
+
+1. Requirement coverage
+
+- Does the design explicitly cover every required feature?
+- Which requirements are vague, partially covered, or missing?
+- Are there any requirements that are implicitly assumed but not concretely designed?
+
+2. Scope control / take-home realism
+
+- Is the design too ambitious for a take-home project?
+- Which parts are MVP-appropriate?
+- Which parts should be simplified, deferred, or mocked?
+- Is there any “nice architecture” that is unnecessary for this assignment?
+
+3. Domain model quality
+
+- Are the core domain entities correct?
+- Are membership products/plans and user memberships separated appropriately?
+- Is expiration modeled correctly?
+- Are feature permissions modeled in a scalable and readable way?
+- Is there confusion between purchase/payment records and active memberships?
+- Are state transitions clear?
+
+4. Backend architecture
+
+- Are responsibilities well separated?
+- Are controllers too fat?
+- Are service objects justified?
+- Is authorization/access logic centralized?
+- Is payment mock integration placed cleanly?
+- Are AI provider integrations abstracted appropriately?
+- Is persistence strategy sound?
+
+5. API design
+
+- Are the endpoints coherent and minimal?
+- Do request/response shapes make sense for frontend use?
+- Are there missing validation/error cases?
+- Are admin APIs separated clearly from user APIs?
+- Is conversation access validation designed clearly?
+
+6. Frontend architecture
+
+- Are pages/screens well scoped?
+- Is state management too complex or too weak?
+- Is the API integration strategy clean?
+- Is the audio flow realistic in the browser?
+- Are recording / processing / replay / error UX states properly considered?
+- Is admin UI scope reasonable?
+
+7. AI/audio integration design
+
+- Are LLM/STT/TTS boundaries clean?
+- Is VAD placement realistic?
+- Is there a sensible topic continuity strategy?
+- Is the latency mitigation plan realistic?
+- Is abuse prevention actually enforceable?
+- Are external dependency failures handled?
+
+8. Data persistence / lifecycle
+
+- What data must be persisted vs what can remain session-only?
+- Is anything important incorrectly left ephemeral?
+- Is anything unnecessary being persisted?
+
+9. Testing strategy
+
+- Can this design be tested well?
+- Are there seams/interfaces for mocking external providers?
+- Are the most important failure modes covered?
+- Is the test plan too shallow?
+- Which tests are absolutely required before submission?
+
+10. Documentation / submission readiness
+
+- Does the design make it easy to produce:
+  - README
+  - architecture explanation
+  - testing guide
+  - coding_agent_interaction_history
+- Are assumptions and tradeoffs easy to explain to reviewers?
+
+11. Maintainability / reviewer impression
+
+- Will this look like peer-review-quality code?
+- Are there naming/modeling smells?
+- Are there likely refactor hotspots?
+- What parts will reviewers criticize first?
+
+==================================================
+OUTPUT FORMAT
+==================================================
+Return your review in the exact structure below:
+
 A. Overall verdict
+
+- 1 paragraph summary
+- state whether the design is:
+  - strong,
+  - acceptable with revisions,
+  - risky,
+  - or needs redesign
+
 B. Requirement coverage audit
+
+- checklist of all required items
+- mark each as:
+  - Covered
+  - Partially covered
+  - Missing
+- explain any partial/missing items
+
 C. Critical issues (P0)
+
+- these would likely cause requirement failure, architecture failure, or major reviewer concern
+
 D. Important improvements (P1)
+
+- these are not fatal, but should be changed before implementation
+
 E. Nice-to-have improvements (P2)
+
+- optional improvements if time allows
+
 F. Overengineering / simplification opportunities
+
+- what should be removed, merged, deferred, or simplified
+
 G. Hidden risks
+
+- likely implementation traps
+- likely integration traps
+- likely testing traps
+- likely demo-day traps
+
 H. Revised recommendation
+
+- propose a cleaner/simpler architecture if necessary
+- include:
+  - domain model adjustments
+  - API adjustments
+  - frontend flow adjustments
+  - testing adjustments
+
 I. Go / no-go recommendation
 
-Be concrete. Prefer simpler architecture if it still satisfies the assignment.
-Do not praise weak design.
+- Can implementation start now?
+- If not, what must be fixed first?
+
+==================================================
+IMPORTANT REVIEW BEHAVIOR
+==================================================
+
+- Be concrete, not vague.
+- Do not praise weak design.
+- Prefer simpler architecture if it still satisfies the assignment.
+- Flag anything that is elegant but impractical.
+- Flag anything that makes testing difficult.
+- Flag anything that makes documentation difficult.
+- Flag anything likely to create bugs around membership expiration, permissions, or audio flow.
+- Flag anything likely to weaken the final submission impression.
+
 Now review the proposed design.
 
-### 2-2. 설계 검토 강화 프롬프트
+### 2-2 설계 검토 강화 문장
 
 Assume the reviewer will actively look for:
 
@@ -123,7 +303,7 @@ Assume the reviewer will actively look for:
 
 Your job is to detect these before they do.
 
-### 2-3 P0만 수정하게 하는 프롬프트
+### 2-3. P0만 수정하게 하는 프롬프트
 
 Take your review and fix only the P0 issues.
 
@@ -137,7 +317,7 @@ Return:
 
 Keep it simpler, not bigger.
 
-### 2-4 과제 범위에 맞게 간소화하는 프롬프트
+### 2-4. 과제 범위에 맞게 간소화하는 프롬프트
 
 Simplify the design for take-home scope.
 
@@ -150,6 +330,24 @@ Rules:
 - improve demo reliability
 
 Show before/after decisions and explain why each simplification is better.
+
+### 2-5. 리뷰어 질문 20개 뽑는 프롬프트
+
+Pretend you are the hiring reviewer seeing this architecture for the first time.
+
+Ask the 20 toughest questions you would ask about:
+
+- requirement coverage
+- domain design
+- membership expiry/permission handling
+- payment mocking
+- AI/STT/TTS realism
+- audio UX feasibility
+- testing depth
+- documentation completeness
+- maintainability
+
+Then answer each question honestly based on the current design.
 
 ### 3-1. Phase분해 및 구현 시작 프롬프트\_Phase를 작은 단위로 쪼개는 프롬프트
 
