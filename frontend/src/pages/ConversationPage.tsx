@@ -1,0 +1,369 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/client'
+import { useAudioRecorder } from '../hooks/useAudioRecorder'
+import type { Message } from '../types'
+
+const MAX_MESSAGES = 20
+const SEND_COOLDOWN_MS = 3000
+
+export function ConversationPage() {
+  const { id } = useParams<{ id: string }>()
+  const conversationId = Number(id)
+  const queryClient = useQueryClient()
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendingType, setSendingType] = useState<'text' | 'audio' | null>(null)
+  const [error, setError] = useState('')
+  const [playingId, setPlayingId] = useState<number | null>(null)
+  const [pendingAudio, setPendingAudio] = useState<Blob | null>(null)
+  const [previewPlaying, setPreviewPlaying] = useState(false)
+  const [cooldown, setCooldown] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const previewUrlRef = useRef<string | null>(null)
+  const hasAutoPlayed = useRef(false)
+  const { isRecording, volume, recordingDuration, startRecording, stopRecording } = useAudioRecorder()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['conversation', conversationId],
+    queryFn: () => api.conversations.get(conversationId),
+  })
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const cleanupPreviewUrl = useCallback(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+  }, [])
+
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+      audioRef.current = null
+    }
+    setPlayingId(null)
+    setPreviewPlaying(false)
+  }, [])
+
+  const playAudio = useCallback((msg: Message) => {
+    if (!msg.audio_url) return
+    stopAudio()
+    const audio = new Audio(msg.audio_url)
+    audioRef.current = audio
+    setPlayingId(msg.id)
+    audio.onended = () => { setPlayingId(null); audioRef.current = null }
+    audio.onerror = () => { setPlayingId(null); audioRef.current = null }
+    audio.play().catch(() => { setPlayingId(null); audioRef.current = null })
+  }, [stopAudio])
+
+  const playPreview = useCallback(() => {
+    if (!pendingAudio) return
+    stopAudio()
+    cleanupPreviewUrl()
+    const url = URL.createObjectURL(pendingAudio)
+    previewUrlRef.current = url
+    const audio = new Audio(url)
+    audioRef.current = audio
+    setPreviewPlaying(true)
+    audio.onended = () => { setPreviewPlaying(false); audioRef.current = null }
+    audio.onerror = () => { setPreviewPlaying(false); audioRef.current = null }
+    audio.play().catch(() => { setPreviewPlaying(false); audioRef.current = null })
+  }, [pendingAudio, stopAudio, cleanupPreviewUrl])
+
+  useEffect(scrollToBottom, [data?.messages])
+
+  useEffect(() => {
+    if (hasAutoPlayed.current || !data?.messages?.length) return
+    const assistantMessages = data.messages.filter(m => m.role === 'assistant')
+    const lastAssistant = assistantMessages[assistantMessages.length - 1]
+    if (lastAssistant?.audio_url) {
+      hasAutoPlayed.current = true
+      playAudio(lastAssistant)
+    }
+  }, [data?.messages, playAudio])
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = '' }
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isRecording) return
+    if (recordingDuration >= 60000) {
+      stopRecording().then(blob => {
+        if (blob) setPendingAudio(blob)
+        else setError('No voice detected. Please try again.')
+      })
+    }
+  }, [isRecording, recordingDuration, stopRecording])
+
+  const startCooldown = () => {
+    setCooldown(true)
+    setTimeout(() => setCooldown(false), SEND_COOLDOWN_MS)
+  }
+
+  const addMessages = (...msgs: Message[]) => {
+    queryClient.setQueryData(['conversation', conversationId], (old: typeof data) => {
+      if (!old) return old
+      return {
+        ...old,
+        messages: [...old.messages, ...msgs],
+        conversation: { ...old.conversation, messages_count: old.conversation.messages_count + msgs.length },
+      }
+    })
+  }
+
+  const handleSendText = async () => {
+    if (!text.trim() || sending || cooldown) return
+    const msg = text.trim()
+    setText('')
+    setError('')
+    setSending(true)
+    setSendingType('text')
+    try {
+      const result = await api.messages.create(conversationId, { text: msg })
+      addMessages(result.user_message, result.ai_message)
+      playAudio(result.ai_message)
+      startCooldown()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send message.')
+    } finally {
+      setSending(false)
+      setSendingType(null)
+    }
+  }
+
+  const handleStartRecording = async () => {
+    if (cooldown) return
+    try { await startRecording() }
+    catch { setError('Microphone access denied.') }
+  }
+
+  const handleStopRecording = async () => {
+    const blob = await stopRecording()
+    if (!blob) {
+      setError('Recording too short or no voice detected. Please speak for at least 1 second.')
+      return
+    }
+    setError('')
+    setPendingAudio(blob)
+  }
+
+  const handleConfirmSend = async () => {
+    if (!pendingAudio || sending) return
+    stopAudio()
+    cleanupPreviewUrl()
+    setError('')
+    setSending(true)
+    setSendingType('audio')
+    const blob = pendingAudio
+    setPendingAudio(null)
+    try {
+      const result = await api.messages.create(conversationId, { audio: blob })
+      addMessages(result.user_message, result.ai_message)
+      playAudio(result.ai_message)
+      startCooldown()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send audio.')
+    } finally {
+      setSending(false)
+      setSendingType(null)
+    }
+  }
+
+  const handleDiscardAudio = () => {
+    stopAudio(); cleanupPreviewUrl(); setPendingAudio(null)
+  }
+
+  const handleReRecord = async () => {
+    handleDiscardAudio()
+    await handleStartRecording()
+  }
+
+  const messageCount = data?.conversation.messages_count ?? 0
+  const limitReached = messageCount >= MAX_MESSAGES
+  const remaining = MAX_MESSAGES - messageCount
+
+  const formatDuration = (ms: number) => {
+    const s = Math.floor(ms / 1000)
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  }
+
+  if (isLoading) return <div className="text-gray-400">Loading conversation...</div>
+
+  const renderInputArea = () => {
+    if (limitReached) {
+      return (
+        <div className="bg-surface border border-gray-200 rounded-2xl p-3 text-center text-sm text-gray-500">
+          메시지 한도에 도달했습니다. <Link to="/conversations" className="text-primary hover:underline">새 대화 시작</Link>
+        </div>
+      )
+    }
+
+    if (isRecording) {
+      return (
+        <div className="bg-white border-2 border-danger rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleStopRecording}
+              className="shrink-0 w-12 h-12 rounded-full bg-danger hover:bg-danger/90 flex items-center justify-center transition-all animate-pulse"
+              title="Stop recording"
+            >
+              <span className="w-4 h-4 bg-white rounded-sm" />
+            </button>
+            <div className="flex-1 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-danger">
+                  <span className="w-2.5 h-2.5 bg-danger rounded-full animate-pulse" />
+                  <span className="text-sm font-medium">Recording</span>
+                  <span className="tabular-nums font-mono text-sm">{formatDuration(recordingDuration)}</span>
+                </div>
+                <span className="text-xs text-gray-400">Max 60s</span>
+              </div>
+              <div className="w-full h-6 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-danger to-danger/70 rounded-full transition-all duration-75"
+                  style={{ width: `${Math.max(2, volume * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (pendingAudio) {
+      return (
+        <div className="bg-white border-2 border-primary rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-primary">녹음 완료</span>
+            <span className="text-xs text-gray-400">{(pendingAudio.size / 1024).toFixed(1)} KB</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {previewPlaying ? (
+              <button onClick={stopAudio} className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl text-sm transition-colors">
+                <span>⏹</span> Stop
+              </button>
+            ) : (
+              <button onClick={playPreview} className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl text-sm transition-colors">
+                <span>▶</span> Preview
+              </button>
+            )}
+            <button onClick={handleReRecord} className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-xl text-sm transition-colors">
+              Re-record
+            </button>
+            <div className="flex-1" />
+            <button onClick={handleDiscardAudio} className="text-gray-400 hover:text-danger px-3 py-2 rounded-xl text-sm transition-colors">
+              Discard
+            </button>
+            <button onClick={handleConfirmSend} className="bg-primary hover:bg-primary-dark text-white px-5 py-2 rounded-xl text-sm font-medium transition-colors">
+              Send
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-2xl p-3 flex items-center gap-2 shadow-sm">
+        <button
+          onClick={handleStartRecording}
+          disabled={sending || cooldown}
+          className="shrink-0 w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all disabled:opacity-50"
+          title="Start recording"
+        >
+          <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-2a5 5 0 01-10 0H3a7.001 7.001 0 006 6.93V17H6v2h8v-2h-3v-2.07z" />
+          </svg>
+        </button>
+        <input
+          type="text" value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSendText()}
+          placeholder="메시지를 입력하세요..."
+          disabled={sending || cooldown}
+          className="flex-1 bg-transparent text-gray-900 placeholder-gray-400 outline-none text-sm disabled:opacity-50"
+        />
+        <button
+          onClick={handleSendText}
+          disabled={!text.trim() || sending || cooldown}
+          className="shrink-0 bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          Send
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-8rem)]">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <Link to="/conversations" className="text-sm text-gray-400 hover:text-primary transition-colors">&larr; Back</Link>
+          <h1 className="text-xl font-bold text-gray-900">{data?.conversation.topic}</h1>
+        </div>
+        <span className={`text-sm font-medium ${remaining <= 4 ? 'text-danger' : 'text-gray-400'}`}>
+          {remaining} / {MAX_MESSAGES} remaining
+        </span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+        {data?.messages.map(msg => (
+          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
+              msg.role === 'user'
+                ? 'bg-primary text-white rounded-br-md'
+                : 'bg-surface text-gray-900 rounded-bl-md border border-gray-100'
+            }`}>
+              {msg.role === 'user' && msg.audio_url && (
+                <span className="text-xs opacity-70 block mb-0.5">Voice message</span>
+              )}
+              <p className="text-sm whitespace-pre-wrap">{msg.content || '(empty transcription)'}</p>
+              {msg.audio_url && (
+                <div className="mt-1.5 flex items-center gap-1">
+                  {playingId === msg.id ? (
+                    <button onClick={stopAudio} className={`text-xs flex items-center gap-1 ${msg.role === 'user' ? 'text-white/80 hover:text-white' : 'text-primary hover:text-primary-dark'}`}>
+                      ⏹ Stop
+                    </button>
+                  ) : (
+                    <button onClick={() => playAudio(msg)} className={`text-xs flex items-center gap-1 ${msg.role === 'user' ? 'text-white/60 hover:text-white/90' : 'text-gray-400 hover:text-primary'}`}>
+                      ▶ Play audio
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {sending && (
+          <div className="flex justify-start">
+            <div className="bg-surface border border-gray-100 rounded-2xl rounded-bl-md px-4 py-2.5">
+              <p className="text-sm text-gray-400 animate-pulse">
+                {sendingType === 'audio' ? 'Transcribing your voice & generating response...' : 'AI is thinking...'}
+              </p>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {error && (
+        <div className="bg-danger/10 border border-danger/30 text-danger px-3 py-2 rounded-xl text-sm mb-2 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="text-danger/60 hover:text-danger ml-2">✕</button>
+        </div>
+      )}
+
+      {renderInputArea()}
+    </div>
+  )
+}
