@@ -2,6 +2,15 @@
 
 A membership-based AI English conversation tutor with real OpenAI integration (GPT-4o-mini, Whisper STT, TTS-1).
 
+## What’s Implemented
+
+- Membership-based access with expiration and feature gating (`learning`, `conversation`, `analysis`)
+- Admin membership assignment/removal + user self-purchase flow with mocked payment
+- AI-first conversation flow with real OpenAI integration where available
+- Voice conversation flow with microphone input, STT, TTS, and replay support
+- Persistent storage with Rails + PostgreSQL
+- Backend automated tests for core domain, service, and request flows
+
 ## Quick Start
 
 ### Prerequisites
