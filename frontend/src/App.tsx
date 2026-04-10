@@ -18,20 +18,20 @@ const queryClient = new QueryClient({
 
 function PrivateRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen text-white">Loading...</div>
+  if (loading) return <div className="flex items-center justify-center h-screen text-gray-400">Loading...</div>
   return user ? <>{children}</> : <Navigate to="/login" />
 }
 
 function AdminRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen text-white">Loading...</div>
+  if (loading) return <div className="flex items-center justify-center h-screen text-gray-400">Loading...</div>
   if (!user) return <Navigate to="/login" />
   return user.role === 'admin' ? <>{children}</> : <Navigate to="/" />
 }
 
 function GuestRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen text-white">Loading...</div>
+  if (loading) return <div className="flex items-center justify-center h-screen text-gray-400">Loading...</div>
   return user ? <Navigate to="/" /> : <>{children}</>
 }
 

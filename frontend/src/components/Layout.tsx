@@ -1,33 +1,53 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
 
+  const navLink = (to: string, label: string) => {
+    const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
+    return (
+      <Link
+        to={to}
+        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          active
+            ? 'bg-primary/10 text-primary'
+            : 'text-gray-600 hover:text-primary hover:bg-gray-50'
+        }`}
+      >
+        {label}
+      </Link>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <nav className="bg-gray-900 border-b border-gray-800">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/" className="text-lg font-bold text-primary">AI Tutor</Link>
-            <div className="flex gap-4 text-sm">
-              <Link to="/" className="hover:text-primary transition-colors">Home</Link>
-              <Link to="/plans" className="hover:text-primary transition-colors">Plans</Link>
-              <Link to="/conversations" className="hover:text-primary transition-colors">Conversations</Link>
-              {user?.role === 'admin' && (
-                <Link to="/admin" className="hover:text-accent transition-colors">Admin</Link>
-              )}
+    <div className="min-h-screen bg-white text-gray-900">
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Link to="/" className="text-xl font-bold text-primary mr-4">
+              Ringle AI Tutor
+            </Link>
+            <div className="hidden sm:flex items-center gap-1">
+              {navLink('/', 'Home')}
+              {navLink('/plans', 'Plans')}
+              {navLink('/conversations', 'Conversations')}
+              {user?.role === 'admin' && navLink('/admin', 'Admin')}
             </div>
           </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-gray-400">{user?.name}</span>
-            <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500 hidden sm:inline">{user?.name}</span>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-primary px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               Logout
             </button>
           </div>

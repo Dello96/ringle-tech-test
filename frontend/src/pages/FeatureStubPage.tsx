@@ -23,13 +23,13 @@ export function FeatureStubPage({ feature }: { feature: string }) {
     return (
       <div className="text-center py-16">
         <div className="text-5xl mb-4">{info?.icon}</div>
-        <h1 className="text-2xl font-bold mb-2">{info?.title}</h1>
-        <p className="text-gray-400 mb-6">This feature requires a membership that includes {feature}.</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">{info?.title}</h1>
+        <p className="text-gray-500 mb-6">이 기능은 {feature}을(를) 포함하는 멤버십이 필요합니다.</p>
         <Link
           to="/plans"
-          className="inline-block bg-primary hover:bg-primary-dark text-white px-6 py-2 rounded-lg font-medium"
+          className="inline-block bg-primary hover:bg-primary-dark text-white px-6 py-2.5 rounded-xl font-medium transition-colors"
         >
-          View Plans
+          플랜 보기
         </Link>
       </div>
     )
@@ -38,12 +38,11 @@ export function FeatureStubPage({ feature }: { feature: string }) {
   return (
     <div className="text-center py-16">
       <div className="text-5xl mb-4">{info?.icon}</div>
-      <h1 className="text-2xl font-bold mb-2">{info?.title}</h1>
-      <p className="text-gray-400 mb-4">{info?.description}</p>
-      <div className="bg-gray-900 border border-gray-700 rounded-xl p-8 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold text-gray-900 mb-2">{info?.title}</h1>
+      <p className="text-gray-500 mb-4">{info?.description}</p>
+      <div className="bg-white border border-gray-200 rounded-2xl p-8 max-w-md mx-auto shadow-sm">
         <p className="text-gray-500 text-sm">
-          This feature is coming soon. Your <strong className="text-primary">{membership?.plan.name}</strong> plan
-          includes access to {feature}.
+          이 기능은 준비 중입니다. <strong className="text-primary">{membership?.plan.name}</strong> 플랜에 {feature} 접근 권한이 포함되어 있습니다.
         </p>
       </div>
     </div>

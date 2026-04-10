@@ -27,49 +27,53 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-3xl font-bold text-white text-center mb-2">AI English Tutor</h1>
-        <p className="text-gray-400 text-center mb-8">Sign in to your account</p>
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
+          <h1 className="text-2xl font-bold text-gray-900 text-center mb-1">Ringle AI Tutor</h1>
+          <p className="text-gray-500 text-center text-sm mb-8">Sign in to your account</p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {justRegistered && (
-            <div className="bg-green-900/40 border border-green-700 text-green-300 px-4 py-2 rounded-lg text-sm">
-              회원가입이 완료되었습니다. 로그인해 주세요.
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {justRegistered && (
+              <div className="bg-accent/10 border border-accent/30 text-accent px-4 py-2.5 rounded-xl text-sm">
+                회원가입이 완료되었습니다. 로그인해 주세요.
+              </div>
+            )}
+            {error && (
+              <div className="bg-danger/10 border border-danger/30 text-danger px-4 py-2.5 rounded-xl text-sm">
+                {error}
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+              <input
+                type="email" required value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                placeholder="example@email.com"
+              />
             </div>
-          )}
-          {error && (
-            <div className="bg-red-900/40 border border-red-700 text-red-300 px-4 py-2 rounded-lg text-sm">
-              {error}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+              <input
+                type="password" required value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+              />
             </div>
-          )}
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Email</label>
-            <input
-              type="email" required value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Password</label>
-            <input
-              type="password" required value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
-            />
-          </div>
-          <button
-            type="submit" disabled={loading}
-            className="w-full bg-primary hover:bg-primary-dark text-white py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
+            <button
+              type="submit" disabled={loading}
+              className="w-full bg-primary hover:bg-primary-dark text-white py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
 
-        <p className="mt-6 text-center text-sm text-gray-400">
-          Don't have an account? <Link to="/register" className="text-primary hover:underline">Register</Link>
-        </p>
+          <p className="mt-6 text-center text-sm text-gray-500">
+            아직 계정이 없으신가요?{' '}
+            <Link to="/register" className="text-primary font-medium hover:underline">회원가입</Link>
+          </p>
+        </div>
       </div>
     </div>
   )

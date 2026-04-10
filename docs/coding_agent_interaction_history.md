@@ -278,11 +278,11 @@ AI 도구(Cursor)를 활용한 개발 과정 기록.
 
 ---
 
-## Post-Phase: 제출 준비 수정
+## Post-Phase: 제출 준비 수정 (1차)
 
 **날짜:** 2026-04-08
 
-**리뷰 요약:** 전체 구현 상태에 대한 strict reviewer 관점 갭 분석 수행
+**프롬프트 요약:** 전체 구현 상태에 대한 strict product/engineering reviewer 관점 갭 분석 요청. "즉시 수정할 것들을 먼저 수정해줘"
 
 **수정 항목:**
 1. `.env.example`에서 실제 API 키 제거 (보안)
@@ -291,4 +291,276 @@ AI 도구(Cursor)를 활용한 개발 과정 기록.
 4. AI 첫 발화 오디오 자동재생 구현 (대화 진입 시 자동 재생)
 5. `ConversationListPage` 대화 생성 실패 에러 표시
 6. 마이크 권한 거부 에러 핸들링 추가
-7. 이 문서에 Phase 4 + Post-Phase 기록 추가
+
+**검증:** `npm run build` 성공, 브라우저 수동 테스트
+
+---
+
+## Phase 5: 오디오 녹음/재생 버그 수정
+
+**날짜:** 2026-04-08
+
+### 5-1. 유저 오디오 재생 실패 (500 에러) + STT 400 에러
+
+**프롬프트 요약:**
+1. "음성인식을 정상적으로 하지 못함 / 녹음한 내용을 들을 수 없음 / AI가 알아듣지 못함"
+2. "녹음한 소리를 들으려고 play audio를 눌러도 듣지 못함"
+3. "녹음 후 정지버튼을 눌렀을 때 422 에러 발생"
+
+**원인 분석:**
+- `trimSilence`에서 chunk 0(WebM 헤더/코덱 초기화 데이터)을 제거하면 브라우저와 OpenAI 모두 파일을 읽지 못함
+- ActiveStorage에 저장되는 유저 오디오가 `rewind` 없이 빈 파일로 저장됨
+- OpenAI STT에 전달되는 파일이 `rewind` 되지 않아 빈 데이터 전송
+
+**AI가 생성한 것:**
+- `trimSilence` 수정: chunk 0(WebM 헤더)을 항상 포함하도록 변경. 앞뒤 무음 제거 시 `chunks[0]`은 반드시 보존
+- `useAudioRecorder.ts`에 `getUserMedia` 품질 옵션 추가: `channelCount: 1`, `echoCancellation`, `noiseSuppression`, `autoGainControl`, `audio/webm;codecs=opus` MIME 타입 명시
+- `ConversationService#reply`에 `rewind_audio(audio)` 호출 추가 (STT 후, ActiveStorage 첨부 전)
+- `Ai::Client#prepare_audio_file`에서 `File.open(tmp_path, "rb")` 직접 사용
+- `MessagesController#create`에 `rescue RuntimeError`, `rescue StandardError` 추가
+
+**수정한 것:**
+- AI가 trailing silence만 제거하도록 생성했으나, 이후 leading + trailing 모두 제거하도록 재수정
+- `rewind_audio` 헬퍼 메서드를 별도로 추출
+
+**검증:** `bundle exec rspec` 전체 통과, 브라우저에서 녹음 → 재생 → STT 정상 동작 확인
+
+### 5-2. Play audio 정지 버튼 + 페이지 이탈 시 오디오 정리
+
+**프롬프트:** "play audio 옆에 play되고 있는 소리를 중단하는 버튼 추가 / 페이지를 나가면 소리 자동 꺼짐 기능 추가"
+
+**AI가 생성한 것:**
+- `ConversationPage.tsx`에 `stopAudio` 함수 추가 (`audioRef.current.pause()` + `src = ''`)
+- `playingId` 상태로 현재 재생 중인 메시지 추적, 재생 중이면 Stop 버튼 표시
+- `useEffect` cleanup에서 `audioRef.current` pause + `previewUrlRef` revoke
+
+**검증:** 브라우저에서 재생 → 정지, 페이지 이동 후 오디오 자동 정지 확인
+
+---
+
+## Phase 6: 녹음 중복 호출 방지
+
+**날짜:** 2026-04-08
+
+**프롬프트:** "useAudioRecorder에서 중복호출을 막을 수 있는 기능이 보이지 않아서 같은 훅 인스턴스에서 연속 클릭을 했을 때 getUserMedia가 중복으로 실행될 수 있을 것 같아"
+
+**AI가 생성한 것:**
+- `useAudioRecorder.ts`에 `busyRef = useRef(false)` 도입
+- `startRecording`: `if (busyRef.current || mediaRecorderRef.current) return` 가드 + `try...finally`로 `busyRef.current = false` 보장
+- `stopRecording`: `if (busyRef.current) return Promise.resolve(null)` 가드
+
+**수정한 것:** 없음. AI 제안이 정확했음.
+
+**검증:** 녹음 버튼 연속 클릭 시 중복 `getUserMedia` 호출 없음 확인
+
+---
+
+## Phase 7: 화폐 단위 + 플랜 정리 + Admin 페이지 재구성
+
+**날짜:** 2026-04-08
+
+### 7-1. 화폐 단위 변경 + 플랜 정리
+
+**프롬프트:** "화폐 단위를 한국 돈(₩)으로 / Standard를 삭제하고 basic, premium만"
+
+**AI가 생성한 것:**
+- `PlansPage.tsx`의 `formatPrice`를 `₩${price.toLocaleString()}`으로 변경
+- 플랜 그리드를 3열에서 2열(`md:grid-cols-2 max-w-2xl`)로 변경
+- `db/seeds.rb`에서 Standard 플랜 삭제 로직 추가, Basic/Premium만 유지 (upsert 패턴)
+- `premium` 변수 미정의 버그 수정 → `MembershipPlan.find_by!(name: "Premium")`으로 변경
+
+**검증:** `rails db:seed` 실행, 브라우저에서 2개 플랜 + ₩ 표시 확인
+
+### 7-2. Admin 페이지 전면 재구성
+
+**프롬프트:** "어드민 페이지를 활성화시켜서 어드민이 유저에게 멤버십을 부여하고 삭제할 수 있도록"
+
+**AI가 생성한 것:**
+- **백엔드**: `Admin::UsersController#index` — 비관리자 유저 목록 + 활성 멤버십 포함
+- **백엔드**: `Admin::MembershipsController#update` — 플랜 변경 + 기간 재설정
+- **프론트**: `api/client.ts`에 `api.admin.users.list()`, `api.admin.memberships.update()` 추가
+- **프론트**: `AdminPage.tsx` 전면 재작성 — 유저 카드, 멤버십 상태 표시, 부여/변경/삭제 인라인 편집
+- **프론트**: `types/index.ts`에 `AdminUser` 인터페이스 추가
+
+**수정한 것:** 없음.
+
+**검증:** `npm run build` 성공, 브라우저에서 관리자 로그인 → 유저 목록 → 멤버십 부여/변경/삭제 동작 확인
+
+---
+
+## Phase 8: 인증 플로우 개선
+
+**날짜:** 2026-04-08
+
+### 8-1. 회원가입 → 로그인 분리
+
+**프롬프트:** "회원가입을 진행하고 가입 완료하게 되면 회원가입이 완료되었다는 알림과 함께 로그인 페이지로 이동해서 로그인을 다시 진행하도록"
+
+**AI가 생성한 것:**
+- **백엔드**: `AuthController#register`에서 `token` 응답 제거 — 가입 시 자동 로그인 비활성화
+- **백엔드**: `AuthController#register`에 `admin_code` 검증 추가 (`role: admin` + `admin_code != "0000"` → 에러)
+- **프론트**: `RegisterPage.tsx`에 관리자 체크박스 + 관리자 코드 입력 필드 추가
+- **프론트**: 가입 성공 시 `/login`으로 `state: { registered: true }` 전달하여 이동
+- **프론트**: `LoginPage.tsx`에서 `location.state.registered`를 감지해 성공 배너 표시
+- **프론트**: `AuthContext.tsx`의 `register` 함수에서 `setToken`/`setUser` 제거
+
+**AI가 실수한 것:**
+- RSpec auth spec에서 register 응답에 `token`이 없는 것을 기대하도록 변경하지 않아 테스트 실패 → spec 수정
+
+**검증:** `bundle exec rspec` 전체 통과, 가입 → 로그인 페이지 이동 → 성공 배너 표시 확인
+
+### 8-2. 관리자 로그인 간소화
+
+**프롬프트:** "관리자의 경우 로그인 페이지에서 관리자 코드를 입력하지 않더라도 회원가입 과정에서 이미 관리자라고 체크되었기 때문에 관리자로 자동 로그인하도록 변경"
+
+**AI가 생성한 것:**
+- **백엔드**: `AuthController#login`에서 `admin_code` 체크 제거 — 이메일/비밀번호만으로 로그인
+- **프론트**: `LoginPage.tsx`에서 관리자 코드 입력 UI 제거
+- **프론트**: `AuthContext.tsx`의 `login` 함수에서 `adminCode` 파라미터 제거
+
+**수정한 것:** 없음.
+
+**검증:** 관리자 계정 이메일/비밀번호만으로 로그인 성공 확인
+
+---
+
+## Phase 9: 녹음 프리뷰 + 네트워크 안정성 강화
+
+**날짜:** 2026-04-08
+
+### 9-1. 녹음 프리뷰/확인 전송 UX
+
+**프롬프트:** "녹음버튼을 누르고 녹음한 뒤 정지버튼을 눌렀을 때 바로 전송되지 않고 답변 완료 버튼을 눌러야 전송되도록 / 전송하기 전에 녹음한 내용을 들어볼 수 있도록"
+
+**AI가 생성한 것:**
+- `ConversationPage.tsx`에 `pendingAudio` 상태 추가 — 녹음 완료 시 바로 전송하지 않고 보관
+- Preview / Re-record / Discard / Send 4가지 액션 버튼 UI
+- `playPreview` 함수 — `URL.createObjectURL`로 로컬 재생
+- `handleConfirmSend` — 확인 후에만 서버 전송
+- `renderInputArea`를 3가지 상태(기본/녹음 중/프리뷰)로 조건부 렌더링
+
+**수정한 것:** 없음.
+
+**검증:** 녹음 → 정지 → 미리듣기 → 전송 플로우 정상 동작 확인
+
+### 9-2. 네트워크 에러 처리 강화
+
+**프롬프트:** "현재 네트워크 오류에 대비되는 설계가 되어있는지"
+
+**AI가 생성한 것:**
+- `api/client.ts`에 `AbortController` 기반 30초 타임아웃 추가
+- `fetch` 호출을 `try/catch`로 감싸서 네트워크 오류(타임아웃 `AbortError`, 연결 실패 `TypeError`) 시 의미 있는 `ApiError` 메시지 생성
+- `setOnUnauthorized` 콜백 메커니즘 도입 — 비-auth API 호출에서 401 응답 시 토큰 삭제 + `logout` 자동 호출
+- `AuthContext.tsx`에서 `setOnUnauthorized(logout)` 등록
+
+**수정한 것:** 없음.
+
+**검증:** `npm run build` 성공
+
+### 9-3. VAD 무음 트리밍 개선
+
+**프롬프트:** "음성이 녹음되고 미리듣기 상황이 될 때 음성공백을 제거하고 음성이 있는 부분만 전송되도록"
+
+**AI가 생성한 것:**
+- `trimSilence` 함수를 앞뒤 양방향 무음 제거로 개선
+- `firstVoice`/`lastVoice` 인덱스 탐색 + `BUFFER_CHUNKS` 여유분 유지
+- 음성이 전혀 없으면 빈 배열 반환 → `stopRecording`에서 `null` 반환
+
+**수정한 것:** 없음. 로직이 정확했음.
+
+**검증:** 녹음 전후에 긴 침묵이 있어도 트림된 오디오만 전송됨 확인
+
+---
+
+## Phase 10: AI 통합 심화 + 어뷰징 방지
+
+**날짜:** 2026-04-08
+
+**프롬프트 요약:**
+1. "LLM에 prompt를 활용하여 일관된 주제를 가지고 대화를 진행할 수 있도록 설계되었는지"
+2. "AI와 대화 시 응답에 걸리는 지연 시간을 단축하기 위한 기술적/UX적인 방법"
+3. "마이크 음성인식을 켠 상태로 많은 요청을 보내는 오남용을 방지하기 위한 계획"
+4. ".env.example 말고 실제 API 키를 활용할 수 있는 구조로 변경"
+
+**검토 후 계획 수립:** 코드 변경 전에 4개 항목에 대한 현황 분석 + 개선 계획을 먼저 제시하고, 사용자 검토 후 구현 진행
+
+### 10-1. 실제 OpenAI API 키 사용 확인 + .env 문서화
+
+**AI가 생성한 것:**
+- `backend/.env`에 실제 `OPENAI_API_KEY`가 이미 설정되어 있고 `dotenv-rails`가 로드하는 구조임을 확인
+- `backend/.env.example`에 상세한 주석 추가 — `.env` 파일의 역할, `dotenv-rails` 동작 방식, FakeClient 폴백 설명
+
+### 10-2. 시스템 프롬프트 대폭 개선
+
+**AI가 생성한 것:**
+- `ConversationService::SYSTEM_PROMPT` 전면 재작성:
+  - **주제 일관성**: 주제 이탈 시 자연스럽게 되돌리는 가이드
+  - **응답 길이**: 2-3문장 + 후속 질문 1개 규칙
+  - **문법 교정**: "틀렸다" 대신 자연스러운 리프레이징 방식
+  - **턴 기반 대화 흐름**: Opening(1-2) → Development(3-6) → Wrap-up(7-9) → Closing(10)
+  - **한국어 입력/빈 전사 처리**: 영어로 다시 시도 요청
+- `build_system_prompt`에 동적 `turn_count` 포함
+- `build_chat_history`에서 유저 메시지 수 기반 `turn_count` 계산
+
+**수정한 것:** 없음.
+
+**검증:** `bundle exec rspec` 전체 통과
+
+### 10-3. TTS 레이턴시 감소 (mp3 포맷 전환)
+
+**AI가 생성한 것:**
+- `Ai::Client#synthesize`: `response_format`을 `"wav"` → `"mp3"`로 변경 — 파일 크기 감소 + 전송 속도 향상
+- `ConversationService#attach_audio`: `filename` 확장자를 `.mp3`, `content_type`을 `"audio/mpeg"`으로 변경
+
+**수정한 것:** 없음.
+
+### 10-4. 어뷰징 방지 (프론트엔드)
+
+**AI가 생성한 것:**
+- `useAudioRecorder.ts`:
+  - `MIN_RECORDING_MS = 1000` — 1초 미만 녹음 시 `null` 반환 (너무 짧은 녹음 차단)
+  - `MAX_RECORDING_MS = 60000` — 60초 자동 정지 타이머
+  - `recordingDuration` 상태 추가 + 실시간 타이머 표시
+- `ConversationPage.tsx`:
+  - `SEND_COOLDOWN_MS = 3000` — 전송 후 3초 쿨다운으로 연속 전송 차단
+  - 메시지 잔여 횟수 표시 (`X / 20 remaining`), 4회 이하일 때 빨간색 경고
+  - 60초 도달 시 자동 `stopRecording` → 프리뷰로 이동하는 `useEffect`
+
+### 10-5. 어뷰징 방지 (백엔드)
+
+**AI가 생성한 것:**
+- `MessagesController`:
+  - `RATE_LIMIT_PER_MINUTE = 10` — 분당 유저 메시지 10회 제한 (`check_rate_limit!` before_action)
+  - `MAX_AUDIO_SIZE = 5.megabytes` — 오디오 파일 5MB 제한 (`check_audio_size!` before_action)
+- `ConversationsController`:
+  - `DAILY_CONVERSATION_LIMIT = 10` — 일일 대화 생성 10회 제한
+
+**수정한 것:** 없음.
+
+**검증:** `bundle exec rspec` 전체 통과, `npm run build` 성공, 브라우저에서 쿨다운/타이머/한도 표시 확인
+
+---
+
+## Phase 11: Ringle 스타일 UI 테마 전환
+
+**날짜:** 2026-04-09
+
+**프롬프트:** "https://www.ringleplus.com/ko/portal/home 이 링크의 UI를 가지고 현재 프로젝트의 UI를 수정해줘"
+
+**AI가 생성한 것:**
+- `index.css`: 다크 테마 CSS 변수를 링글 스타일 라이트 테마로 전면 교체
+  - Primary: `#6C5CE7` (퍼플), Accent: `#00B894` (그린), Surface: `#F8F9FA`, Danger: `#E17055`
+  - `body` 배경 화이트 + 텍스트 다크
+- `Layout.tsx`: 화이트 네비게이션 + sticky + 활성 탭 퍼플 하이라이트
+- `LoginPage.tsx` / `RegisterPage.tsx`: 화이트 카드 + 그림자 + rounded-2xl + 한국어 안내 텍스트
+- `HomePage.tsx`: 화이트 카드 + hover shadow, 한국어 텍스트
+- `PlansPage.tsx`: 라이트 테마 카드, 현재 플랜 퍼플 배경
+- `ConversationListPage.tsx`: 화이트 카드 + hover 효과, 한국어 텍스트
+- `ConversationPage.tsx`: 유저 버블(퍼플) / AI 버블(연한 회색) 라이트 테마, 입력 영역 화이트
+- `AdminPage.tsx`: 화이트 카드 + 라이트 테마 폼 요소
+- `FeatureStubPage.tsx`: 라이트 테마 + 한국어 텍스트
+- `App.tsx`: 로딩 텍스트 색상 `text-white` → `text-gray-400`
+
+**수정한 것:** 없음. 전체 10개 파일을 일괄 변환.
+
+**검증:** `npm run build` 성공, 린트 에러 없음
