@@ -7,7 +7,8 @@ module Api
         result = PurchaseService.new.call(
           user: current_user,
           plan: plan,
-          card_token: params[:card_token]
+          card_token: params[:card_token],
+          replace_existing: ActiveModel::Type::Boolean.new.cast(params[:replace_existing])
         )
 
         render json: {

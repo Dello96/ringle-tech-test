@@ -2,6 +2,15 @@
 
 A membership-based AI English conversation tutor with real OpenAI integration (GPT-4o-mini, Whisper STT, TTS-1).
 
+## What’s Implemented
+
+- Membership-based access with expiration and feature gating (`learning`, `conversation`, `analysis`)
+- Admin membership assignment/removal + user self-purchase flow with mocked payment
+- AI-first conversation flow with real OpenAI integration where available
+- Voice conversation flow with microphone input, STT, TTS, and replay support
+- Persistent storage with Rails + PostgreSQL
+- Backend automated tests for core domain, service, and request flows
+
 ## Quick Start
 
 ### Prerequisites
@@ -45,12 +54,27 @@ The Vite dev server proxies `/api/*` to the Rails backend automatically.
 
 ### 3. Demo Accounts
 
-| Role  | Email              | Password      |
-|-------|--------------------|---------------|
-| Admin | admin@example.com  | password123   |
-| User  | user@example.com   | password123   |
+Please log in with a demo account or create a new account.
+
+You can also create an admin account (enter admin code 0000 when signing up).
+
+| Role  | Email               | Password    |
+| ----- | ------------------- | ----------- |
+| Admin | tjdgus96@naver.com  | roemflq3308 |
+| User  | rkffpq818@naver.com | roemflq3308 |
 
 The demo user comes with a **Premium** membership (learning + conversation + analysis, 30 days).
+
+## Suggested Demo Flow
+
+1. Log in as the demo user
+2. Purchase the premium membership and check your membership plan
+3. Open the conversation screen
+4. Verify that the AI speaks first
+5. Record or type a reply
+6. Confirm STT → AI response → TTS playback
+7. Replay both user and assistant audio
+8. Log in as admin and assign/revoke a membership
 
 ### Running Tests
 
@@ -80,15 +104,15 @@ backend/   (Rails 8.1 API + PostgreSQL)
 
 ### Tech Stack Rationale
 
-| Choice | Why |
-|--------|-----|
-| `has_secure_token` (not JWT) | Simpler. No refresh logic, no expiration management. DB-backed token invalidation is trivial. |
+| Choice                          | Why                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `has_secure_token` (not JWT)    | Simpler. No refresh logic, no expiration management. DB-backed token invalidation is trivial.  |
 | `Ai::Client` / `Ai::FakeClient` | DI pattern. Real OpenAI in prod, fake in tests/demo. Configured via `OPENAI_API_KEY` presence. |
-| `MockPaymentGateway` with DI | `PurchaseService.new(gateway:)` — swap gateway without touching business logic. |
-| PostgreSQL array for `features` | No join table needed. Simple `%w[learning conversation analysis]` checks. |
-| `ActiveStorage` proxy mode | Serves audio files through Rails proxy, avoiding CORS issues with direct storage URLs. |
-| Tailwind CSS v4 | Utility-first, dark theme, zero config with `@tailwindcss/vite` plugin. |
-| TanStack Query | Server state caching, automatic refetch, optimistic updates for conversation messages. |
+| `MockPaymentGateway` with DI    | `PurchaseService.new(gateway:)` — swap gateway without touching business logic.                |
+| PostgreSQL array for `features` | No join table needed. Simple `%w[learning conversation analysis]` checks.                      |
+| `ActiveStorage` proxy mode      | Serves audio files through Rails proxy, avoiding CORS issues with direct storage URLs.         |
+| Tailwind CSS v4                 | Utility-first, dark theme, zero config with `@tailwindcss/vite` plugin.                        |
+| TanStack Query                  | Server state caching, automatic refetch, optimistic updates for conversation messages.         |
 
 ### Domain Model
 
@@ -102,20 +126,20 @@ User (has_secure_password, has_secure_token :auth_token)
 
 ### API Endpoints
 
-| Method | Endpoint | Auth | Purpose |
-|--------|----------|------|---------|
-| POST   | /api/v1/auth/register | - | Sign up |
-| POST   | /api/v1/auth/login | - | Sign in |
-| GET    | /api/v1/auth/me | User | Current user + active membership |
-| GET    | /api/v1/plans | - | List membership plans |
-| POST   | /api/v1/purchases | User | Purchase plan (mock payment) |
-| GET    | /api/v1/conversations | User+conv | List conversations |
-| GET    | /api/v1/conversations/:id | User+conv | Conversation detail with messages |
-| POST   | /api/v1/conversations | User+conv | Start conversation (AI speaks first) |
-| POST   | /api/v1/conversations/:id/messages | User+conv | Send message (text or audio) |
-| GET    | /api/v1/admin/memberships | Admin | List all memberships (filterable) |
-| POST   | /api/v1/admin/memberships | Admin | Assign membership to user |
-| DELETE | /api/v1/admin/memberships/:id | Admin | Revoke membership |
+| Method | Endpoint                           | Auth      | Purpose                              |
+| ------ | ---------------------------------- | --------- | ------------------------------------ |
+| POST   | /api/v1/auth/register              | -         | Sign up                              |
+| POST   | /api/v1/auth/login                 | -         | Sign in                              |
+| GET    | /api/v1/auth/me                    | User      | Current user + active membership     |
+| GET    | /api/v1/plans                      | -         | List membership plans                |
+| POST   | /api/v1/purchases                  | User      | Purchase plan (mock payment)         |
+| GET    | /api/v1/conversations              | User+conv | List conversations                   |
+| GET    | /api/v1/conversations/:id          | User+conv | Conversation detail with messages    |
+| POST   | /api/v1/conversations              | User+conv | Start conversation (AI speaks first) |
+| POST   | /api/v1/conversations/:id/messages | User+conv | Send message (text or audio)         |
+| GET    | /api/v1/admin/memberships          | Admin     | List all memberships (filterable)    |
+| POST   | /api/v1/admin/memberships          | Admin     | Assign membership to user            |
+| DELETE | /api/v1/admin/memberships/:id      | Admin     | Revoke membership                    |
 
 ### Conversation Flow
 
