@@ -46,14 +46,11 @@ Vite dev server가 `/api/*` 요청을 Rails 백엔드로 자동 프록시합니�
 ### 3. Demo Accounts
 
 시드 데이터로 생성되는 기본 계정:
-\*\*관리자 계정의 경우 관리자코드 0000을 입력하면 관리자 계정으로 가입 가능합니다.
 
 | Role  | Email             | Password    |
 | ----- | ----------------- | ----------- |
 | Admin | admin@example.com | password123 |
 | User  | user@example.com  | password123 |
-
-데모 유저는 **Premium** 멤버십(learning + conversation + analysis, 60일)이 부여됩니다.
 
 새 계정을 직접 생성할 수도 있으며, 관리자 가입 시 관리자 코드 `0000`을 입력합니다.
 
